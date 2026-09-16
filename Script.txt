@@ -1,382 +1,315 @@
-local BotCode = [=[
-    if not game:IsLoaded() then game.Loaded:Wait() end
-    task.wait(3)
+if not game:IsLoaded() then game.Loaded:Wait() end
+task.wait(3)
 
-    local Players = game:GetService("Players")
-    local TextChatService = game:GetService("TextChatService")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local TeleportService = game:GetService("TeleportService")
-    local HttpService = game:GetService("HttpService")
-    local PathfindingService = game:GetService("PathfindingService")
-    local UserInputService = game:GetService("UserInputService")
-    local TweenService = game:GetService("TweenService")
-    local Workspace = game:GetService("Workspace")
+local SERVER_URL = "http://127.0.0.1:8000/api/update" 
 
-    local LocalPlayer = Players.LocalPlayer
-    local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local Players = game:GetService("Players")
+local TextChatService = game:GetService("TextChatService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TeleportService = game:GetService("TeleportService")
+local HttpService = game:GetService("HttpService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
 
-    -- === 1. ИНТЕРФЕЙС-МЕНЮ (С черной шапкой) ===
-    local screenGui = Instance.new("ScreenGui")
-    screenGui.Name = "DonationBotGui"
-    screenGui.ResetOnSpawn = false
-    screenGui.Parent = PlayerGui
+local LocalPlayer = Players.LocalPlayer
+local botStartTime = os.time()
+local currentRaised = 0
 
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(0, 160, 0, 65)
-    mainFrame.Position = UDim2.new(0, 20, 0.5, -30)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Parent = screenGui
+-- НОВАЯ СТАТИСТИКА
+local stats_visited = 0
+local stats_agreed = 0
+local stats_rejected = 0
+local stats_ignored = 0
 
-    local uiCorner = Instance.new("UICorner")
-    uiCorner.CornerRadius = UDim.new(0, 8)
-    uiCorner.Parent = mainFrame
+-- === ИНТЕРФЕЙС РОБЛОКСА ===
+local successGui, parentGui = pcall(function()
+    if gethui then return gethui() end
+    if CoreGui then return CoreGui end
+    return LocalPlayer:WaitForChild("PlayerGui")
+end)
+if not successGui then parentGui = LocalPlayer:WaitForChild("PlayerGui") end
 
-    local dragBar = Instance.new("Frame")
-    dragBar.Size = UDim2.new(1, 0, 0, 20)
-    dragBar.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    dragBar.BorderSizePixel = 0
-    dragBar.Parent = mainFrame
-    
-    local dragCorner = Instance.new("UICorner")
-    dragCorner.CornerRadius = UDim.new(0, 8)
-    dragCorner.Parent = dragBar
+if parentGui:FindFirstChild("ForestDonationGodMode") then parentGui.ForestDonationGodMode:Destroy() end
 
-    local dragBlock = Instance.new("Frame")
-    dragBlock.Size = UDim2.new(1, 0, 0, 10)
-    dragBlock.Position = UDim2.new(0, 0, 1, -10)
-    dragBlock.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    dragBlock.BorderSizePixel = 0
-    dragBlock.Parent = dragBar
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "ForestDonationGodMode"
+screenGui.ResetOnSpawn = false
+screenGui.Parent = parentGui
 
-    local dragTitle = Instance.new("TextLabel")
-    dragTitle.Size = UDim2.new(1, 0, 1, 0)
-    dragTitle.BackgroundTransparency = 1
-    dragTitle.Text = "Drag Here"
-    dragTitle.TextColor3 = Color3.fromRGB(150, 150, 150)
-    dragTitle.TextSize = 12
-    dragTitle.Font = Enum.Font.SourceSansBold
-    dragTitle.Parent = dragBar
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 230, 0, 105)
+mainFrame.Position = UDim2.new(0, 30, 0.5, -50)
+mainFrame.BackgroundColor3 = Color3.fromRGB(10, 10, 15)
+mainFrame.BackgroundTransparency = 0.1
+mainFrame.BorderSizePixel = 0
+mainFrame.Parent = screenGui
 
-    local toggleButton = Instance.new("TextButton")
-    toggleButton.Name = "ToggleButton"
-    toggleButton.Size = UDim2.new(1, 0, 1, -20)
-    toggleButton.Position = UDim2.new(0, 0, 0, 20)
-    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
-    toggleButton.Text = "Bot: ON"
-    toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-    toggleButton.TextSize = 18
-    toggleButton.Font = Enum.Font.SourceSansBold
-    toggleButton.Parent = mainFrame
+local mainCorner = Instance.new("UICorner")
+mainCorner.CornerRadius = UDim.new(0, 16)
+mainCorner.Parent = mainFrame
 
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 8)
-    btnCorner.Parent = toggleButton
+local mainStroke = Instance.new("UIStroke")
+mainStroke.Color = Color3.fromRGB(0, 255, 120)
+mainStroke.Transparency = 0.2
+mainStroke.Thickness = 2
+mainStroke.Parent = mainFrame
 
-    -- Перетаскивание
-    local dragging, dragInput, dragStart, startPos
-    dragBar.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true; dragStart = input.Position; startPos = mainFrame.Position
-            input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
-        end
-    end)
-    dragBar.InputChanged:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then dragInput = input end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if input == dragInput and dragging then
-            local delta = input.Position - dragStart
-            mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+local dragBar = Instance.new("Frame")
+dragBar.Size = UDim2.new(1, 0, 0, 32)
+dragBar.BackgroundColor3 = Color3.fromRGB(18, 18, 28)
+dragBar.BorderSizePixel = 0
+dragBar.Parent = mainFrame
+  
+local dragCorner = Instance.new("UICorner")
+dragCorner.CornerRadius = UDim.new(0, 16)
+dragCorner.Parent = dragBar
 
-    -- === 2. ПЕРЕМЕННЫЕ ===
-    local isRunning = true
-    local currentTarget = nil
-    local agreedFlag = false
-    local actuallyDonatedFlag = false
-    local rejectedFlag = false
-    local visitedPlayers = {}
-    local hasClaimedBooth = false
-    local myBoothPosition = nil 
-    local BUBBLE_CHAT_DURATION = 5.2 
+local dragTitle = Instance.new("TextLabel")
+dragTitle.Size = UDim2.new(1, -20, 1, 0)
+dragTitle.Position = UDim2.new(0, 14, 0, 0)
+dragTitle.BackgroundTransparency = 1
+dragTitle.Text = "⚡ WEB CONTROL v2.0"
+dragTitle.TextColor3 = Color3.fromRGB(240, 240, 255)
+dragTitle.TextSize = 13
+dragTitle.Font = Enum.Font.GothamBold
+dragTitle.TextXAlignment = Enum.TextXAlignment.Left
+dragTitle.Parent = dragBar
 
-    local begPhrases = {
-        "Pls robux donate me!",
-        "Can you please donate a few robux?",
-        "Please help me out with some robux!",
-        "Pls donate robux bro, I really need it!"
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Name = "StatusLabel"
+statusLabel.Size = UDim2.new(1, -20, 0, 20)
+statusLabel.Position = UDim2.new(0, 12, 0, 38)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Status: Booting..."
+statusLabel.TextColor3 = Color3.fromRGB(0, 255, 120)
+statusLabel.TextSize = 11
+statusLabel.Font = Enum.Font.GothamSemibold
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.Parent = mainFrame
+
+local toggleButton = Instance.new("TextButton")
+toggleButton.Name = "ToggleButton"
+toggleButton.Size = UDim2.new(1, -16, 0, 34)
+toggleButton.Position = UDim2.new(0, 8, 0, 63)
+toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+toggleButton.Text = "BOT: ACTIVE"
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.TextSize = 13
+toggleButton.Font = Enum.Font.GothamBold
+toggleButton.Parent = mainFrame
+
+local btnCorner = Instance.new("UICorner")
+btnCorner.CornerRadius = UDim.new(0, 10)
+btnCorner.Parent = toggleButton
+
+local uiStatusText = "Booting..."
+local function setStatus(text)
+    uiStatusText = text
+    if statusLabel then statusLabel.Text = "Status: " .. text end
+end
+
+-- === СВЯЗЬ С САЙТОМ ===
+local function sendToServer(dataType, message, color)
+    local data = {
+        type = dataType,
+        bot_name = LocalPlayer.Name,
+        job_id = game.JobId,
+        status = message or "",
+        raised = currentRaised,
+        uptime = math.floor((os.time() - botStartTime) / 60),
+        message = message or "",
+        color = color or "text-white",
+        visited = stats_visited,
+        agreed = stats_agreed,
+        rejected = stats_rejected,
+        ignored = stats_ignored
     }
-    local negativeWords = {"no", "nah", "sorry", "cant", "can't", "don't", "dont", "stop", "go away", "never", "0", "nop", "broke", "none"}
-    local positiveWords = {"ok", "okay", "sure", "yes", "yeah", "lead", "where", "come", "alright", "ofc", "yep", "follow"}
-    local donatedWords = {"donated", "done", "bought", "paid", "here", "thx"}
-
-    -- === 2.5. АНТИ-СИДЕНИЕ НА СКАМЕЙКАХ ===
-    task.spawn(function()
-        while task.wait(0.2) do
-            if not isRunning then continue end
-            local char = LocalPlayer.Character
-            if char then
-                local hum = char:FindFirstChildOfClass("Humanoid")
-                local hrp = char:FindFirstChild("HumanoidRootPart")
-                if hum and hrp and hum.Sit then
-                    hum.Sit = false
-                    hum.Jump = true
-                    -- Отпрыгиваем подальше от скамейки
-                    hum:MoveTo(hrp.Position + hrp.CFrame.LookVector * 10)
-                end
-            end
-        end
-    end)
-
-    -- === 3. РЕАЛИСТИЧНЫЙ ЧАТ И ШИФТЛОК ===
-    local function typeAndSendMessage(message)
-        local typeDelay = (string.len(message) / 12) + (math.random(10, 30) / 100)
-        task.wait(typeDelay)
+    local req = (syn and syn.request) or http_request or request
+    if req then
         pcall(function()
-            if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
-                local generalChannel = TextChatService.TextChannels:FindFirstChild("RBXGeneral")
-                if generalChannel then generalChannel:SendAsync(message) end
-            else
-                local chatEvent = ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents")
-                if chatEvent then
-                    local sayMessage = chatEvent:FindFirstChild("SayMessageRequest")
-                    if sayMessage then sayMessage:FireServer(message, "All") end
-                end
-            end
+            req({Url = SERVER_URL, Method = "POST", Headers = {["Content-Type"] = "application/json"}, Body = HttpService:JSONEncode(data)})
         end)
     end
+end
 
-    local function smoothLookAt(targetPos)
-        local char = LocalPlayer.Character
-        if char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid") then
-            local hrp = char.HumanoidRootPart
-            local hum = char.Humanoid
-            if hum.MoveDirection.Magnitude < 0.1 then -- Только когда стоим
-                local lookPos = Vector3.new(targetPos.X, hrp.Position.Y, targetPos.Z)
-                local tweenInfo = TweenInfo.new(0.3, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-                local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.lookAt(hrp.Position, lookPos)})
-                tween:Play()
-            end
-        end
-    end
-
-    -- === 4. УМНЫЙ ОБХОД ПРЕПЯТСТВИЙ (PATHFINDING 3.0) ===
-    local function smartMoveTo(targetPosition)
-        local character = LocalPlayer.Character
-        if not character then return end
-        local humanoid = character:FindFirstChildOfClass("Humanoid")
-        local hrp = character:FindFirstChild("HumanoidRootPart")
-        if not humanoid or not hrp then return end
-
-        local path = PathfindingService:CreatePath({ AgentRadius = 3, AgentHeight = 5, AgentCanJump = true })
-        local success = pcall(function() path:ComputeAsync(hrp.Position, targetPosition) end)
-
-        if success and path.Status == Enum.PathStatus.Success then
-            local waypoints = path:GetWaypoints()
-            for i, waypoint in ipairs(waypoints) do
-                if not isRunning then break end
-                if i == 1 then continue end 
-                
-                if waypoint.Action == Enum.PathWaypointAction.Jump then humanoid.Jump = true end
-                humanoid:MoveTo(waypoint.Position)
-                
-                local timeout = 0
-                local startPos = hrp.Position
-                while isRunning and timeout < 20 do
-                    task.wait(0.1)
-                    timeout = timeout + 1
-                    
-                    local dist2D = (Vector3.new(hrp.Position.X, 0, hrp.Position.Z) - Vector3.new(waypoint.Position.X, 0, waypoint.Position.Z)).Magnitude
-                    if dist2D < 4 then break end 
-                    
-                    -- Если за 0.5 сек почти не сдвинулись - застряли, прыгаем!
-                    if timeout % 5 == 0 then
-                        if (hrp.Position - startPos).Magnitude < 1.5 then
-                            humanoid.Jump = true
-                        end
-                        startPos = hrp.Position
-                    end
+task.spawn(function()
+    local leaderstats = LocalPlayer:WaitForChild("leaderstats", 15)
+    if leaderstats then
+        local raisedStat = leaderstats:FindFirstChild("Raised") or leaderstats:FindFirstChild("Donated") or leaderstats:FindFirstChild("Robux")
+        if raisedStat then
+            currentRaised = raisedStat.Value
+            raisedStat.Changed:Connect(function(newValue)
+                local diff = newValue - currentRaised
+                if diff > 0 then
+                    sendToServer("notification", "🎉 ДОНАТ! Получено: +" .. diff .. " R$", "text-[#00FF78]")
                 end
-            end
-        else
-            humanoid:MoveTo(targetPosition)
+                currentRaised = newValue
+            end)
         end
     end
+end)
 
-    -- === 5. ТЕЛЕПОРТ К СТЕНДУ + ФОРС ПРОГРУЗКА ===
-    local function claimBoothTeleport(attemptCount)
-        local character = LocalPlayer.Character
-        if not character or not character:FindFirstChild("HumanoidRootPart") then return false end
-        local hrp = character.HumanoidRootPart
+task.spawn(function()
+    sendToServer("notification", "Bot Joined Server!", "text-blue-400")
+    while task.wait(3) do sendToServer("status", uiStatusText) end
+end)
 
-        -- Если за 2 попытки не нашли, телепортируемся в центр карты, чтобы прогрузить мир (StreamingEnabled)
-        if attemptCount == 2 or attemptCount == 5 then
-            hrp.CFrame = CFrame.new(0, 10, 0)
-            task.wait(1.5)
+-- === ПЕРЕМЕННЫЕ ===
+local isRunning = true
+local currentTarget = nil
+local agreedFlag = false
+local actuallyDonatedFlag = false
+local rejectedFlag = false
+local visitedPlayers = {}
+local hasClaimedBooth = false
+local myBoothPosition = nil 
+
+local begPhrases = {
+    "Pls robux donate me!", "Can anyone please donate a few robux? Saving up for an item!",
+    "Please help me out with some robux if you can :(", "Pls donate robux bro, I really need it!",
+    "Any small donation helps a lot! Thank you <3"
+}
+local negativeWords = {"no", "nah", "sorry", "cant", "can't", "don't", "dont", "stop", "go away", "never", "0", "nop", "broke", "none", "busy", "nope"}
+local positiveWords = {"ok", "okay", "sure", "yes", "yeah", "lead", "where", "come", "alright", "ofc", "yep", "follow", "show", "lets"}
+
+local function typeAndSendMessage(message)
+    pcall(function()
+        if TextChatService.ChatVersion == Enum.ChatVersion.TextChatService then
+            TextChatService.TextChannels:FindFirstChild("RBXGeneral"):SendAsync(message)
+        else
+            ReplicatedStorage:FindFirstChild("DefaultChatSystemChatEvents"):FindFirstChild("SayMessageRequest"):FireServer(message, "All")
         end
+    end)
+end
 
-        local targetPrompt = nil
-        local targetPart = nil
-        local shortestDist = math.huge
+-- === ДВИЖЕНИЕ ===
+local function aggressiveMoveTo(targetPos)
+    local char = LocalPlayer.Character
+    if not char then return end
+    local hum = char:FindFirstChild("Humanoid")
+    local hrp = char:FindFirstChild("HumanoidRootPart")
+    if not hum or not hrp then return end
 
+    local timeout = 0
+    local lastPos = hrp.Position
+    while isRunning do
+        if (hrp.Position - targetPos).Magnitude <= 5 then break end
+        pcall(function() hum:MoveTo(targetPos) end)
+        timeout = timeout + 1
+        if timeout % 10 == 0 then
+            if (hrp.Position - lastPos).Magnitude < 1 then pcall(function() hum.Jump = true end) end
+            lastPos = hrp.Position
+        end
+        if timeout > 100 then break end
+        task.wait(0.1)
+    end
+end
+
+-- === ЗАХВАТ СТЕНДА ===
+local function claimBoothUltimate()
+    setStatus("Searching for booth...")
+    local char = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+    local hrp = char:WaitForChild("HumanoidRootPart", 5)
+    if not hrp then return false end
+
+    local targetPrompt, targetPart = nil, nil
+    pcall(function()
         for _, obj in ipairs(Workspace:GetDescendants()) do
             if obj:IsA("ProximityPrompt") then
-                local aText = string.lower(obj.ActionText or "")
-                local oText = string.lower(obj.ObjectText or "")
-                
-                if string.find(aText, "claim") or string.find(oText, "unclaimed") or string.find(aText, "rent") then
-                    if not string.find(aText, "donate") and not string.find(oText, "donate") then
-                        -- Проверяем, что это не игрок
-                        local model = obj:FindFirstAncestorOfClass("Model")
-                        if model and model:FindFirstChild("Humanoid") then continue end
-
-                        local part = obj:FindFirstAncestorWhichIsA("BasePart")
-                        if not part and model then 
-                            part = model.PrimaryPart or model:FindFirstChildWhichIsA("BasePart", true) 
-                        end
-
-                        if part then
-                            local dist = (hrp.Position - part.Position).Magnitude
-                            if dist < shortestDist then
-                                shortestDist = dist
-                                targetPrompt = obj
-                                targetPart = part
-                            end
-                        end
-                    end
+                local t1, t2, t3 = string.lower(obj.ActionText or ""), string.lower(obj.ObjectText or ""), string.lower(obj.Name or "")
+                if string.find(t1, "claim") or string.find(t2, "claim") or string.find(t3, "claim") then
+                    targetPrompt = obj
+                    targetPart = obj.Parent
+                    if targetPart and targetPart:IsA("Attachment") then targetPart = targetPart.Parent end
+                    break 
                 end
             end
         end
+    end)
 
-        if targetPrompt and targetPart then
-            -- МГНОВЕННЫЙ ТЕЛЕПОРТ К СТЕНДУ (КАК ТЫ И ПРОСИЛ)
-            hrp.CFrame = targetPart.CFrame * CFrame.new(0, 2, 3.5)
-            task.wait(0.5)
-            
-            -- Принудительно включаем кнопку, даже если она отключена
-            targetPrompt.Enabled = true
-            targetPrompt.MaxActivationDistance = 50
-
-            if fireproximityprompt then
-                fireproximityprompt(targetPrompt)
-            else
-                targetPrompt:InputHoldBegin()
-                task.wait(0.3)
-                targetPrompt:InputHoldEnd()
-            end
-            
-            myBoothPosition = targetPart.Position
-            task.wait(1.5)
-            return true
-        end
-
-        return false
-    end
-
-    -- === 6. СМЕНА СЕРВЕРА ===
-    local function serverHop()
-        toggleButton.Text = "Hopping..."
-        toggleButton.BackgroundColor3 = Color3.fromRGB(255, 100, 0)
-        
-        local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or teleportqueue
-        if q then pcall(function() q('pcall(function() loadstring(readfile("AutoForestBot.txt"))() end)') end) end
-        
-        task.wait(1)
+    if targetPrompt and targetPart and targetPart:IsA("BasePart") then
+        setStatus("Teleporting to booth...")
         pcall(function()
-            local req = request or http_request or (http and http.request) or syn.request
-            if req then
-                local res = req({Url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100", Method = "GET"})
-                local data = HttpService:JSONDecode(res.Body)
-                if data and data.data then
-                    for _, s in ipairs(data.data) do
-                        if s.playing < s.maxPlayers and s.id ~= game.JobId then
-                            TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, LocalPlayer)
-                            return
-                        end
-                    end
-                end
-            end
-            TeleportService:Teleport(game.PlaceId, LocalPlayer)
+            hrp.CFrame = targetPart.CFrame * CFrame.new(0, 3, 3)
+            task.wait(0.3)
+            hrp.CFrame = targetPart.CFrame * CFrame.new(0, 3, 3)
         end)
-    end
-
-    -- === 7. ОБРАБОТКА ЧАТА ===
-    local function containsWord(message, wordList)
-        for _, word in ipairs(wordList) do
-            if string.match(message, "%f[%w]" .. word .. "%f[%W]") then return true end
-        end
-        return false
-    end
-
-    local function onPlayerChatted(player, msg)
-        if not isRunning or player ~= currentTarget then return end
-        local lowerMsg = string.lower(msg)
-        
-        if containsWord(lowerMsg, negativeWords) then rejectedFlag = true; return end
-        if containsWord(lowerMsg, positiveWords) then agreedFlag = true; return end
-        if containsWord(lowerMsg, donatedWords) then actuallyDonatedFlag = true; return end
-    end
-
-    for _, player in ipairs(Players:GetPlayers()) do player.Chatted:Connect(function(msg) onPlayerChatted(player, msg) end) end
-    Players.PlayerAdded:Connect(function(player) player.Chatted:Connect(function(msg) onPlayerChatted(player, msg) end) end)
-
-    -- === 8. ГЛАВНАЯ ЛОГИКА ===
-    local function startBeggingLoop()
-        task.spawn(function()
-            local claimAttempts = 0
-            
-            -- ЗАХВАТ СТЕНДА
-            while not hasClaimedBooth and isRunning do
-                toggleButton.Text = "Searching Booth..."
-                toggleButton.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
-                
-                claimAttempts = claimAttempts + 1
-                if claimBoothTeleport(claimAttempts) then
-                    hasClaimedBooth = true
-                    toggleButton.Text = "Bot: ON"
-                    toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
-                else
-                    if claimAttempts >= 8 then -- Если 8 раз не смог найти, меняем сервер
-                        toggleButton.Text = "Full! Hopping..."
-                        toggleButton.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-                        task.wait(2)
-                        serverHop()
-                        return
-                    end
-                    task.wait(1.5)
-                end
+        setStatus("Activating booth...")
+        task.wait(0.5)
+        pcall(function()
+            targetPrompt.Enabled = true
+            targetPrompt.MaxActivationDistance = 999
+            if fireproximityprompt then fireproximityprompt(targetPrompt) else
+                targetPrompt:InputHoldBegin() task.wait(0.5) targetPrompt:InputHoldEnd()
             end
-            
-            -- ОБХОД ИГРОКОВ
-            while isRunning do
-                local character = LocalPlayer.Character
-                if not character or not character:FindFirstChild("HumanoidRootPart") then task.wait(1); continue end
+        end)
+        myBoothPosition = targetPart.Position
+        task.wait(1.5)
+        return true
+    end
+    return false
+end
+
+local function serverHop()
+    setStatus("Hopping server...")
+    sendToServer("notification", "Hopping to a new server...", "text-orange-400")
+    local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or teleportqueue
+    if q then pcall(function() q('loadstring(game:HttpGet("https://raw.githubusercontent.com/D1enrbx/Forest-Donations/refs/heads/main/Script.txt"))()') end) end
+    task.wait(1)
+    pcall(function()
+        local req = request or http_request or (http and http.request) or syn.request
+        local res = req({Url = "https://games.roblox.com/v1/games/" .. game.PlaceId .. "/servers/Public?sortOrder=Asc&limit=100", Method = "GET"})
+        local data = HttpService:JSONDecode(res.Body)
+        for _, s in ipairs(data.data) do
+            if s.playing < s.maxPlayers and s.id ~= game.JobId then
+                TeleportService:TeleportToPlaceInstance(game.PlaceId, s.id, LocalPlayer)
+                return
+            end
+        end
+        TeleportService:Teleport(game.PlaceId, LocalPlayer)
+    end)
+end
+
+-- === ГЛАВНЫЙ ЦИКЛ ===
+local function startBeggingLoop()
+    task.spawn(function()
+        while not hasClaimedBooth and isRunning do
+            if claimBoothUltimate() then
+                hasClaimedBooth = true
+                setStatus("Booth Claimed!")
+                sendToServer("notification", "Successfully claimed stand!", "text-green-400")
+            else
+                task.wait(2)
+                serverHop()
+                return
+            end
+        end
+        
+        while isRunning do
+            pcall(function()
+                local char = LocalPlayer.Character
+                if not char or not char:FindFirstChild("HumanoidRootPart") then return end
                 
                 local closestPlayer = nil
-                local shortestDistance = math.huge
+                local shortestDist = math.huge
                 
                 for _, player in ipairs(Players:GetPlayers()) do
                     if player ~= LocalPlayer and not visitedPlayers[player.UserId] and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
-                        -- Игнорируем сидящих
-                        local targetHum = player.Character:FindFirstChildOfClass("Humanoid")
-                        if targetHum and targetHum.Sit then continue end
-
-                        local dist = (character.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude
-                        if dist < shortestDistance then
-                            shortestDistance = dist
+                        local dist = (char.HumanoidRootPart.Position - player.Character.HumanoidRootPart.Position).Magnitude
+                        if dist < shortestDist then
+                            shortestDist = dist
                             closestPlayer = player
                         end
                     end
                 end
                 
-                -- Если все игроки кончились
                 if not closestPlayer then
-                    typeAndSendMessage("No more people here, hopping server...")
+                    setStatus("All visited, hopping...")
+                    typeAndSendMessage("Hopping server...")
                     task.wait(2)
                     serverHop()
-                    break
+                    isRunning = false
+                    return
                 end
                 
                 visitedPlayers[closestPlayer.UserId] = true
@@ -385,107 +318,100 @@ local BotCode = [=[
                 rejectedFlag = false
                 actuallyDonatedFlag = false
                 
-                -- Идем к игроку
-                if closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                    smartMoveTo(closestPlayer.Character.HumanoidRootPart.Position + Vector3.new(3, 0, 3))
-                end
+                -- ОБНОВЛЯЕМ СТАТИСТИКУ VISITED
+                stats_visited = stats_visited + 1
                 
-                -- ПРЕСЛЕДОВАНИЕ И ОБЩЕНИЕ
+                setStatus("Walking to player")
+                aggressiveMoveTo(closestPlayer.Character.HumanoidRootPart.Position + Vector3.new(3, 0, 3))
+                
                 for attempt = 1, 3 do
-                    if not isRunning or currentTarget ~= closestPlayer or rejectedFlag or agreedFlag then break end
+                    if not isRunning or rejectedFlag or agreedFlag then break end
+                    pcall(function() char.HumanoidRootPart.CFrame = CFrame.lookAt(char.HumanoidRootPart.Position, Vector3.new(closestPlayer.Character.HumanoidRootPart.Position.X, char.HumanoidRootPart.Position.Y, closestPlayer.Character.HumanoidRootPart.Position.Z)) end)
                     
-                    if closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                        smoothLookAt(closestPlayer.Character.HumanoidRootPart.Position)
-                    end
-                    
+                    setStatus("Asking (" .. attempt .. "/3)")
                     typeAndSendMessage(begPhrases[math.random(1, #begPhrases)])
                     
                     local timer = 0
-                    while timer < BUBBLE_CHAT_DURATION and isRunning and not rejectedFlag and not agreedFlag do
+                    while timer < 5 and isRunning and not rejectedFlag and not agreedFlag do
                         task.wait(0.1)
                         timer = timer + 0.1
-                        
-                        -- Бежим за игроком, если он уходит
                         if closestPlayer.Character and closestPlayer.Character:FindFirstChild("HumanoidRootPart") then
-                            local targetPos = closestPlayer.Character.HumanoidRootPart.Position
-                            local currentDist = (character.HumanoidRootPart.Position - targetPos).Magnitude
-                            
-                            if currentDist > 5.5 and currentDist < 60 then
-                                character.Humanoid:MoveTo(targetPos)
-                                if character.HumanoidRootPart.Velocity.Magnitude < 0.5 then
-                                    character.Humanoid.Jump = true
-                                end
-                            elseif currentDist <= 5.5 then
-                                character.Humanoid:MoveTo(character.HumanoidRootPart.Position)
-                                smoothLookAt(targetPos)
+                            local tPos = closestPlayer.Character.HumanoidRootPart.Position
+                            if (char.HumanoidRootPart.Position - tPos).Magnitude > 6 then
+                                pcall(function() char.Humanoid:MoveTo(tPos) end)
                             end
                         end
                     end
                 end
 
-                -- ОТВОД К СТЕНДУ
                 if agreedFlag and isRunning then
+                    -- ОБНОВЛЯЕМ СТАТИСТИКУ AGREED
+                    stats_agreed = stats_agreed + 1
+                    sendToServer("notification", "Player agreed to follow!", "text-green-300")
+                    
+                    setStatus("Leading to booth!")
                     typeAndSendMessage("Follow me to my booth please!")
                     task.wait(1.5)
                     
-                    if myBoothPosition then
-                        smartMoveTo(myBoothPosition + Vector3.new(0, 0, 4.5))
-                        smoothLookAt(myBoothPosition)
-                    end
+                    if myBoothPosition then aggressiveMoveTo(myBoothPosition + Vector3.new(0, 0, 4.5)) end
                     
                     local waitTimer = 0
-                    while waitTimer < 15 and isRunning and not actuallyDonatedFlag do
+                    while waitTimer < 20 and isRunning and not actuallyDonatedFlag do
                         task.wait(1)
                         waitTimer = waitTimer + 1
-                        
-                        if waitTimer % 4 == 0 and character and myBoothPosition then
-                            local restlessMove = myBoothPosition + Vector3.new(math.random(-3, 3), 0, math.random(3, 5))
-                            character.Humanoid:MoveTo(restlessMove)
-                            if math.random(1, 3) == 1 then character.Humanoid.Jump = true end
-                        end
-                        
-                        if waitTimer == 7 and currentTarget and currentTarget.Character then
-                            local distToMe = (character.HumanoidRootPart.Position - currentTarget.Character.HumanoidRootPart.Position).Magnitude
-                            if distToMe > 25 then 
-                                smoothLookAt(currentTarget.Character.HumanoidRootPart.Position)
-                                typeAndSendMessage("Are you coming?") 
-                                task.wait(1.5)
-                                smoothLookAt(myBoothPosition)
-                            end
-                        end
+                        setStatus("Waiting for donate (" .. waitTimer .. "s)")
                     end
 
                     if actuallyDonatedFlag then
-                        typeAndSendMessage("Thank you so much!!")
+                        setStatus("Donation received!")
+                        typeAndSendMessage("Thank you so much!! <3")
                         task.wait(2)
                     else
-                        typeAndSendMessage("Well, maybe next time...")
-                        task.wait(2)
+                        setStatus("Moving on...")
+                        typeAndSendMessage("Maybe next time...")
+                        task.wait(1)
                     end
+                elseif rejectedFlag then
+                    -- ОБНОВЛЯЕМ СТАТИСТИКУ REJECTED
+                    stats_rejected = stats_rejected + 1
+                    sendToServer("notification", "Player rejected.", "text-red-400")
+                else
+                    -- ОБНОВЛЯЕМ СТАТИСТИКУ IGNORED
+                    stats_ignored = stats_ignored + 1
+                    sendToServer("notification", "Player ignored.", "text-gray-400")
                 end
-                
-                task.wait(0.5)
-            end
-        end)
-    end
-
-    toggleButton.MouseButton1Click:Connect(function()
-        isRunning = not isRunning
-        if isRunning then
-            toggleButton.Text = "Bot: ON"
-            toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
-            startBeggingLoop()
-        else
-            toggleButton.Text = "Bot: OFF"
-            toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
-            currentTarget = nil
+            end)
+            task.wait(0.5)
         end
     end)
+end
 
-    startBeggingLoop()
-]=]
+for _, player in ipairs(Players:GetPlayers()) do 
+    player.Chatted:Connect(function(msg)
+        local lMsg = string.lower(msg)
+        if containsWord(lMsg, negativeWords) then rejectedFlag = true end
+        if containsWord(lMsg, positiveWords) then agreedFlag = true end
+    end) 
+end
+Players.PlayerAdded:Connect(function(player) 
+    player.Chatted:Connect(function(msg)
+        local lMsg = string.lower(msg)
+        if containsWord(lMsg, negativeWords) then rejectedFlag = true end
+        if containsWord(lMsg, positiveWords) then agreedFlag = true end
+    end) 
+end)
 
-pcall(function() writefile("AutoForestBot.txt", BotCode) end)
-local q = (syn and syn.queue_on_teleport) or queue_on_teleport or (fluxus and fluxus.queue_on_teleport) or teleportqueue
-if q then pcall(function() q('pcall(function() loadstring(readfile("AutoForestBot.txt"))() end)') end) end
-loadstring(BotCode)()
+toggleButton.MouseButton1Click:Connect(function()
+    isRunning = not isRunning
+    if isRunning then
+        toggleButton.Text = "BOT: ACTIVE"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(0, 200, 100)
+        startBeggingLoop()
+    else
+        toggleButton.Text = "BOT: PAUSED"
+        toggleButton.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+        setStatus("Paused by user")
+    end
+end)
+
+startBeggingLoop()
