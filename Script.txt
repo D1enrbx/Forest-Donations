@@ -1,7 +1,7 @@
 if not game:IsLoaded() then game.Loaded:Wait() end
 task.wait(3)
 
-local SERVER_URL = "http://127.0.0.1:8000/api/update" 
+local SERVER_URL = "http://localhost:8000/api/update" 
 
 local Players = game:GetService("Players")
 local TextChatService = game:GetService("TextChatService")
@@ -273,32 +273,17 @@ end
 -- === ГЛАВНЫЙ ЦИКЛ ===
 local function startBeggingLoop()
     task.spawn(function()
-    while task.wait(0.1) do
-        if not isRunning then continue end
-        local char = LocalPlayer.Character
-        if char then
-            local hum = char:FindFirstChildOfClass("Humanoid")
-            local hrp = char:FindFirstChild("HumanoidRootPart")
-            
-            -- Если персонаж сел на лавочку
-            if hum and hrp and hum.Sit then
-                hum.Sit = false -- Заставляем встать
-                hum.Jump = true -- Прыгаем, чтобы оторваться от лавочки
-                
-                -- Уничтожаем сварку (SeatWeld), которая приклеивает игрока к лавочке
-                for _, obj in ipairs(hrp:GetChildren()) do
-                    if obj.Name == "SeatWeld" or obj:IsA("Weld") then
-                        obj:Destroy()
-                    end
-                end
-                
-                -- Делаем рывок вперед и вверх, чтобы точно слезть
-                hrp.CFrame = hrp.CFrame * CFrame.new(0, 3, -5)
-                task.wait(0.2)
+        while not hasClaimedBooth and isRunning do
+            if claimBoothUltimate() then
+                hasClaimedBooth = true
+                setStatus("Booth Claimed!")
+                sendToServer("notification", "Successfully claimed stand!", "text-green-400")
+            else
+                task.wait(2)
+                serverHop()
+                return
             end
         end
-    end
-end)
         
         while isRunning do
             pcall(function()
