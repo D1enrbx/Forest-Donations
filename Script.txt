@@ -1,3 +1,36 @@
+-- =====================================================================
+-- 🛡️ СЕКЬЮРИТИ: ЗАЩИТА ОТ ПРЯМОГО ЗАПУСКА В ОБХОД КЛЮЧА 🛡️
+-- =====================================================================
+if not _G.ForestBotRunning then
+    local player = game:GetService("Players").LocalPlayer
+    if player then
+        player:Kick("\n❌ ОШИБКА ДОСТУПА ❌\n\nСначала купите ключ в Telegram-боте и запустите официальный лоадер!")
+    end
+    return
+end
+
+print("[Forest Bot] 🟢 Основной скрипт запущен легально!")
+
+-- =====================================================================
+-- 📡 ТЕЛЕМЕТРИЯ ДЛЯ ТЕЛЕГРАМ-БОТА (ОБНОВЛЕНИЕ БАЛАНСА) 📡
+-- =====================================================================
+task.spawn(function()
+    local LocalPlayer = game:GetService("Players").LocalPlayer
+    while task.wait(3) do
+        local leaderstats = LocalPlayer:FindFirstChild("leaderstats")
+        if leaderstats then
+            for _, stat in ipairs(leaderstats:GetChildren()) do
+                local name = string.lower(stat.Name)
+                if (name:find("raised") or name:find("robux") or name:find("donated") or name:find("earned")) then
+                    _G.ForestEarned = stat.Value
+                end
+            end
+        end
+    end
+end)
+
+-- НИЖЕ ИДЕТ ВЕСЬ ТВОЙ СТАРЫЙ КОД (БЕГ, СТЕНДЫ, ЧАТ И Т.Д.)
+
 -- Защита от повторного запуска
 if _G.ForestBotRunning then return end
 _G.ForestBotRunning = true
